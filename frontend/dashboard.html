@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ControlOS — Dashboard</title>
+  <link rel="stylesheet" href="/static/main.css" />
+</head>
+<body>
+<div class="app-shell">
+  <!-- topbar + sidebar injected by shell.js -->
+
+  <main class="main-content" id="main">
+
+    <!-- Alerts -->
+    <div id="alerts-section"></div>
+
+    <!-- Header -->
+    <div class="page-header">
+      <div>
+        <div class="page-title" id="greeting">Centro de Control</div>
+        <div class="page-subtitle" id="date-line"></div>
+      </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats-grid" id="stats-grid">
+      <div class="stat-card"><div class="spinner"></div></div>
+      <div class="stat-card"><div class="spinner"></div></div>
+      <div class="stat-card"><div class="spinner"></div></div>
+      <div class="stat-card"><div class="spinner"></div></div>
+    </div>
+
+    <!-- Two column -->
+    <div class="two-col">
+
+      <!-- Left: recent transactions + pending tasks -->
+      <div style="display:flex;flex-direction:column;gap:1rem;">
+
+        <!-- Recent Transactions -->
+        <div class="card">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
+            <div class="card-title">Movimientos recientes</div>
+            <a href="/finance" class="btn btn-ghost btn-sm">Ver todos →</a>
+          </div>
+          <div id="recent-tx">
+            <div class="empty-state"><div class="spinner"></div></div>
+          </div>
+        </div>
+
+        <!-- Pending Tasks -->
+        <div class="card">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
+            <div class="card-title">Tareas prioritarias</div>
+            <a href="/projects" class="btn btn-ghost btn-sm">Ver proyectos →</a>
+          </div>
+          <div id="pending-tasks">
+            <div class="empty-state"><div class="spinner"></div></div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Right: task breakdown + project summary -->
+      <div style="display:flex;flex-direction:column;gap:1rem;">
+
+        <!-- Task Breakdown -->
+        <div class="card">
+          <div class="card-title">Estado de tareas</div>
+          <div id="task-breakdown"></div>
+        </div>
+
+        <!-- Project Summary -->
+        <div class="card">
+          <div class="card-title">Resumen de proyectos</div>
+          <div id="project-summary"></div>
+        </div>
+
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<div id="toast-container"></div>
+
+<script src="/js/api.js"></script>
+<script src="/js/shell.js"></script>
+<script>
+(async () => {
+  const user = await requireAuth();
+  if (!user) return;
+  injectShell('dashboard');
+  renderTopbar(user);
+
+  // Date
+  const now = new Date();
+  document.getElementById('greeting').textContent =
+    `Hola, ${user.name.split(' ')[0]} 👋`;
+  document.getElementById('date-line').textContent =
+    now.toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+
+  let data;
+  try {
+    data = await api.dashboard();
+  } catch (e) {
+    toast('Error cargando dashboard: ' + e.message, 'error');
+    return;
+  }
+
+  // Alerts
+  const alertsSection = document.getElementById('alerts-section');
+  if (data.alerts?.length) {
+    alertsSection.innerHTML = data.alerts.map(a =>
+      `<div class="alert alert-${a.type}">⚠️ ${a.message}</div>`
+    ).join('') + '<div style="height:1rem"></div>';
+  }
+
+  // Stats
+  const f = data.finance;
+  const balClass = f.balance >= 0 ? 'green' : 'red';
+  const monthClass = f.monthly_balance >= 0 ? 'green' : 'red';
+  document.getElementById('stats-grid').innerHTML = `
+    <div class="stat-card">
+      <div class="stat-icon">💰</div>
+      <div class="stat-label">Balance total</div>
+      <div class="stat-value ${balClass}">${fmtCLP(f.balance)}</div>
+      <div class="stat-change">Acumulado histórico</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">📈</div>
+      <div class="stat-label">Ingresos del mes</div>
+      <div class="stat-value green">${fmtCLP(f.monthly_income)}</div>
+      <div class="stat-change">${now.toLocaleString('es-CL',{month:'long'})}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">📉</div>
+      <div class="stat-label">Gastos del mes</div>
+      <div class="stat-value red">${fmtCLP(f.monthly_expense)}</div>
+      <div class="stat-change">${now.toLocaleString('es-CL',{month:'long'})}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">🗂</div>
+      <div class="stat-label">Proyectos activos</div>
+      <div class="stat-value purple">${data.projects.active}</div>
+      <div class="stat-change">${data.tasks.pending} tareas pendientes</div>
+    </div>
+  `;
+
+  // Recent transactions
+  const txEl = document.getElementById('recent-tx');
+  if (!f.recent_transactions.length) {
+    txEl.innerHTML = `<div class="empty-state"><div class="icon">💸</div><p>Sin movimientos recientes</p></div>`;
+  } else {
+    txEl.innerHTML = `
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>Descripción</th><th>Categoría</th><th>Fecha</th><th>Monto</th>
+          </tr></thead>
+          <tbody>
+            ${f.recent_transactions.map(tx => `
+              <tr>
+                <td>${tx.description}</td>
+                <td>${tx.category ? tx.category.icon + ' ' + tx.category.name : '—'}</td>
+                <td class="text-dim text-sm">${fmtShortDate(tx.date)}</td>
+                <td class="${amountClass(tx.type)} text-mono">${amountSign(tx.type, tx.amount)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  // Pending tasks
+  const taskEl = document.getElementById('pending-tasks');
+  if (!data.tasks.pending_list.length) {
+    taskEl.innerHTML = `<div class="empty-state"><div class="icon">✅</div><p>Sin tareas pendientes</p></div>`;
+  } else {
+    taskEl.innerHTML = data.tasks.pending_list.map(t => `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:0.6rem 0;border-bottom:1px solid var(--border);">
+        <div>
+          <div style="font-size:0.88rem;font-weight:500">${t.title}</div>
+          <div class="text-dim text-xs">${t.project}${t.due_date ? ' · ' + fmtShortDate(t.due_date) : ''}</div>
+        </div>
+        ${priorityBadge(t.priority)}
+      </div>
+    `).join('');
+  }
+
+  // Task breakdown
+  const t = data.tasks;
+  const total = t.total || 1;
+  document.getElementById('task-breakdown').innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:0.75rem;">
+      ${[
+        { label: 'Pendientes', val: t.pending, cls: 'yellow', pct: (t.pending/total*100).toFixed(0) },
+        { label: 'En progreso', val: t.in_progress, cls: 'blue',   pct: (t.in_progress/total*100).toFixed(0) },
+        { label: 'Terminadas', val: t.done, cls: 'green',  pct: (t.done/total*100).toFixed(0) },
+      ].map(r => `
+        <div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:0.3rem;font-size:0.82rem;">
+            <span style="color:var(--text2)">${r.label}</span>
+            <span class="text-mono" style="color:var(--${r.cls})">${r.val}</span>
+          </div>
+          <div class="progress-bar">
+            <div class="progress-fill" style="width:${r.pct}%;background:var(--${r.cls})"></div>
+          </div>
+        </div>
+      `).join('')}
+      <div class="text-dim text-xs" style="text-align:right;margin-top:0.25rem">${t.total} tareas totales</div>
+    </div>
+  `;
+
+  // Project summary
+  document.getElementById('project-summary').innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:0.5rem;">
+      <div style="display:flex;justify-content:space-between;font-size:0.85rem;padding:0.4rem 0;border-bottom:1px solid var(--border);">
+        <span class="text-muted">Total de proyectos</span>
+        <span class="text-mono">${data.projects.total}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:0.85rem;padding:0.4rem 0;">
+        <span class="text-muted">Proyectos activos</span>
+        <span class="text-mono" style="color:var(--accent3)">${data.projects.active}</span>
+      </div>
+      <a href="/projects" class="btn btn-secondary w-full" style="justify-content:center;margin-top:0.5rem;">
+        Ver tablero de proyectos →
+      </a>
+    </div>
+  `;
+
+})();
+</script>
+</body>
+</html>

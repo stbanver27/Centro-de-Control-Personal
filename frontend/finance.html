@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ControlOS — Finanzas</title>
+  <link rel="stylesheet" href="/static/main.css" />
+  <style>
+    .filter-bar {
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 1.5rem;
+      padding: 1rem 1.25rem;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius2);
+    }
+    .filter-bar select, .filter-bar input { width: auto; min-width: 120px; }
+    .filter-spacer { flex: 1; }
+
+    .donut-svg { transform: rotate(-90deg); }
+    .donut-center {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      pointer-events: none;
+    }
+    .donut-center-val {
+      font-family: var(--font-head);
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .donut-center-lbl {
+      font-size: 0.7rem;
+      color: var(--text3);
+      font-family: var(--font-mono);
+    }
+    .donut-wrap-inner {
+      position: relative;
+      width: 140px; height: 140px;
+      flex-shrink: 0;
+    }
+  </style>
+</head>
+<body>
+<div class="app-shell">
+
+  <main class="main-content">
+
+    <div class="page-header">
+      <div>
+        <div class="page-title">💸 Finanzas</div>
+        <div class="page-subtitle">Control de ingresos y gastos</div>
+      </div>
+      <button class="btn btn-primary" id="btn-new-tx">+ Nueva transacción</button>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats-grid" id="stats-grid">
+      <div class="stat-card"><div class="spinner"></div></div>
+      <div class="stat-card"><div class="spinner"></div></div>
+      <div class="stat-card"><div class="spinner"></div></div>
+    </div>
+
+    <!-- Main grid -->
+    <div class="two-col">
+
+      <!-- Transactions list -->
+      <div class="card" style="padding:0;">
+        <div style="padding:1.25rem 1.5rem 0;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
+            <div class="card-title" style="margin:0">Transacciones</div>
+          </div>
+          <!-- Filters -->
+          <div class="filter-bar">
+            <select id="filter-month">
+              <option value="">Todos los meses</option>
+              ${[
+                'Enero','Febrero','Marzo','Abril','Mayo','Junio',
+                'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'
+              ].map((m,i)=>`<option value="${i+1}">${m}</option>`).join('')}
+            </select>
+            <select id="filter-year">
+              <option value="">Año</option>
+              ${[2024,2025,2026].map(y=>`<option value="${y}">${y}</option>`).join('')}
+            </select>
+            <select id="filter-type">
+              <option value="">Todos los tipos</option>
+              <option value="income">Ingresos</option>
+              <option value="expense">Gastos</option>
+            </select>
+            <div class="filter-spacer"></div>
+            <button class="btn btn-secondary btn-sm" id="btn-filter">Filtrar</button>
+          </div>
+        </div>
+
+        <div class="table-wrap" id="tx-table">
+          <div class="empty-state"><div class="spinner"></div></div>
+        </div>
+      </div>
+
+      <!-- Right panel: summary + donut chart -->
+      <div style="display:flex;flex-direction:column;gap:1rem;">
+
+        <div class="card">
+          <div class="card-title">Resumen del mes</div>
+          <div id="monthly-summary"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Gastos por categoría</div>
+          <div class="donut-wrap" id="donut-chart">
+            <div class="empty-state" style="padding:1.5rem;width:100%">
+              <div class="spinner"></div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- Modal: new transaction -->
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">Nueva transacción</div>
+      <button class="modal-close" id="modal-close">✕</button>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Tipo</label>
+      <select id="tx-type">
+        <option value="expense">Gasto</option>
+        <option value="income">Ingreso</option>
+      </select>
+    </div>
+    <div class="form-row" style="margin-top:0.75rem;">
+      <div class="form-group">
+        <label class="form-label">Monto (CLP)</label>
+        <input type="number" id="tx-amount" placeholder="0" min="1" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Categoría</label>
+        <select id="tx-category"></select>
+      </div>
+    </div>
+    <div class="form-group" style="margin-top:0.75rem;">
+      <label class="form-label">Descripción</label>
+      <input type="text" id="tx-desc" placeholder="Ej: Supermercado Unimarc" />
+    </div>
+    <div class="form-group" style="margin-top:0.75rem;">
+      <label class="form-label">Fecha</label>
+      <input type="date" id="tx-date" />
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-secondary" id="btn-cancel">Cancelar</button>
+      <button class="btn btn-primary" id="btn-save-tx">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+<script src="/js/api.js"></script>
+<script src="/js/shell.js"></script>
+<script>
+const now = new Date();
+let categories = [];
+let allTransactions = [];
+
+(async () => {
+  const user = await requireAuth();
+  if (!user) return;
+  injectShell('finance');
+  renderTopbar(user);
+
+  // Set default filters to current month/year
+  document.getElementById('filter-month').value = now.getMonth() + 1;
+  document.getElementById('filter-year').value = now.getFullYear();
+  document.getElementById('tx-date').value = now.toISOString().slice(0,10);
+
+  // Load categories
+  categories = await api.categories().catch(() => []);
+  populateCategorySelect();
+
+  await loadAll();
+})();
+
+async function loadAll() {
+  const month = document.getElementById('filter-month').value || null;
+  const year  = document.getElementById('filter-year').value  || null;
+  const type  = document.getElementById('filter-type').value  || null;
+
+  const [txList, summary, catSummary] = await Promise.all([
+    api.transactions({ month, year, type }),
+    api.summary({ month: month || now.getMonth()+1, year: year || now.getFullYear() }),
+    api.categorySummary({ month: month || now.getMonth()+1, year: year || now.getFullYear() }),
+  ]).catch(e => { toast(e.message, 'error'); return [[],[],[]]; });
+
+  allTransactions = txList || [];
+  renderStats(summary);
+  renderTxTable(allTransactions);
+  renderMonthlySummary(summary);
+  renderDonut(catSummary || []);
+}
+
+function renderStats(s) {
+  if (!s) return;
+  const balClass = s.balance >= 0 ? 'green' : 'red';
+  document.getElementById('stats-grid').innerHTML = `
+    <div class="stat-card">
+      <div class="stat-label">Ingresos del mes</div>
+      <div class="stat-value green">${fmtCLP(s.total_income)}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Gastos del mes</div>
+      <div class="stat-value red">${fmtCLP(s.total_expense)}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Balance mensual</div>
+      <div class="stat-value ${balClass}">${fmtCLP(s.balance)}</div>
+    </div>
+  `;
+}
+
+function renderTxTable(list) {
+  const el = document.getElementById('tx-table');
+  if (!list.length) {
+    el.innerHTML = `<div class="empty-state" style="padding:2rem;"><div class="icon">📭</div><p>Sin transacciones en este período</p></div>`;
+    return;
+  }
+  el.innerHTML = `
+    <table>
+      <thead><tr>
+        <th>Descripción</th><th>Tipo</th><th>Categoría</th><th>Fecha</th><th>Monto</th><th></th>
+      </tr></thead>
+      <tbody>
+        ${list.map(tx => `
+          <tr>
+            <td>${tx.description}</td>
+            <td>${tx.type === 'income'
+              ? '<span class="badge badge-income">Ingreso</span>'
+              : '<span class="badge badge-expense">Gasto</span>'}</td>
+            <td class="text-muted">${tx.category ? tx.category.icon + ' ' + tx.category.name : '—'}</td>
+            <td class="text-dim text-sm">${fmtDate(tx.date)}</td>
+            <td class="${amountClass(tx.type)} text-mono">${amountSign(tx.type, tx.amount)}</td>
+            <td>
+              <button class="btn btn-ghost btn-icon" onclick="deleteTx(${tx.id})" title="Eliminar">🗑</button>
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+function renderMonthlySummary(s) {
+  if (!s) return;
+  const pct = s.total_income ? Math.min(100, (s.total_expense / s.total_income * 100)).toFixed(0) : 0;
+  document.getElementById('monthly-summary').innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:0.6rem;">
+      <div style="display:flex;justify-content:space-between;font-size:0.85rem;">
+        <span class="text-muted">Ingresos</span>
+        <span class="amount-positive text-mono">${fmtCLP(s.total_income)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:0.85rem;">
+        <span class="text-muted">Gastos</span>
+        <span class="amount-negative text-mono">${fmtCLP(s.total_expense)}</span>
+      </div>
+      <hr class="sep" style="margin:0.25rem 0;" />
+      <div style="display:flex;justify-content:space-between;font-size:0.9rem;font-weight:600;">
+        <span>Balance</span>
+        <span class="${s.balance >= 0 ? 'amount-positive' : 'amount-negative'} text-mono">${fmtCLP(s.balance)}</span>
+      </div>
+      <div style="margin-top:0.5rem;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:0.3rem;" class="text-xs text-dim">
+          <span>Gasto vs ingreso</span><span>${pct}%</span>
+        </div>
+        <div class="progress-bar">
+          <div class="progress-fill" style="width:${pct}%;background:${pct > 100 ? 'var(--red)' : 'var(--accent)'}"></div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderDonut(catData) {
+  const el = document.getElementById('donut-chart');
+  if (!catData.length) {
+    el.innerHTML = `<div class="empty-state" style="padding:1rem;width:100%;"><div class="icon">📊</div><p>Sin gastos este mes</p></div>`;
+    return;
+  }
+
+  const total = catData.reduce((acc, c) => acc + c.total, 0);
+  const r = 54, cx = 70, cy = 70, circum = 2 * Math.PI * r;
+  let offset = 0;
+  const slices = catData.map(c => {
+    const pct = c.total / total;
+    const dash = pct * circum;
+    const slice = { ...c, dash, offset, pct };
+    offset += dash;
+    return slice;
+  });
+
+  el.innerHTML = `
+    <div class="donut-wrap-inner">
+      <svg width="140" height="140" class="donut-svg" viewBox="0 0 140 140">
+        ${slices.map(s => `
+          <circle
+            cx="${cx}" cy="${cy}" r="${r}"
+            fill="none"
+            stroke="${s.category_color}"
+            stroke-width="22"
+            stroke-dasharray="${s.dash} ${circum - s.dash}"
+            stroke-dashoffset="${-s.offset}"
+          />
+        `).join('')}
+        <circle cx="${cx}" cy="${cy}" r="${r - 13}" fill="var(--bg2)" />
+      </svg>
+      <div class="donut-center">
+        <div class="donut-center-val">${fmtCLP(total)}</div>
+        <div class="donut-center-lbl">gastos</div>
+      </div>
+    </div>
+    <div class="donut-legend">
+      ${slices.map(s => `
+        <div class="legend-item">
+          <span class="legend-color" style="background:${s.category_color}"></span>
+          <span class="legend-name truncate">${s.category_icon} ${s.category_name}</span>
+          <span class="legend-val">${(s.pct*100).toFixed(0)}%</span>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function populateCategorySelect() {
+  const sel = document.getElementById('tx-category');
+  const type = document.getElementById('tx-type').value;
+  sel.innerHTML = '<option value="">Sin categoría</option>' +
+    categories
+      .filter(c => c.type === type)
+      .map(c => `<option value="${c.id}">${c.icon} ${c.name}</option>`)
+      .join('');
+}
+
+document.getElementById('tx-type').addEventListener('change', populateCategorySelect);
+document.getElementById('btn-filter').addEventListener('click', loadAll);
+
+// Modal
+const modal = document.getElementById('modal');
+document.getElementById('btn-new-tx').addEventListener('click', () => {
+  modal.classList.add('open');
+  populateCategorySelect();
+});
+document.getElementById('modal-close').addEventListener('click', () => modal.classList.remove('open'));
+document.getElementById('btn-cancel').addEventListener('click', () => modal.classList.remove('open'));
+modal.addEventListener('click', e => { if (e.target === modal) modal.classList.remove('open'); });
+
+document.getElementById('btn-save-tx').addEventListener('click', async () => {
+  const type     = document.getElementById('tx-type').value;
+  const amount   = parseFloat(document.getElementById('tx-amount').value);
+  const desc     = document.getElementById('tx-desc').value.trim();
+  const catId    = document.getElementById('tx-category').value;
+  const dateVal  = document.getElementById('tx-date').value;
+
+  if (!amount || !desc) { toast('Completa monto y descripción', 'error'); return; }
+
+  try {
+    await api.createTx({
+      type,
+      amount,
+      description: desc,
+      category_id: catId ? parseInt(catId) : null,
+      date: dateVal ? new Date(dateVal).toISOString() : null,
+    });
+    modal.classList.remove('open');
+    toast('Transacción registrada ✓');
+    document.getElementById('tx-amount').value = '';
+    document.getElementById('tx-desc').value = '';
+    await loadAll();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+});
+
+async function deleteTx(id) {
+  if (!confirm('¿Eliminar esta transacción?')) return;
+  try {
+    await api.deleteTx(id);
+    toast('Eliminado');
+    await loadAll();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+</script>
+</body>
+</html>

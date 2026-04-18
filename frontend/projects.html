@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ControlOS — Proyectos</title>
+  <link rel="stylesheet" href="/static/main.css" />
+  <style>
+    .project-tabs {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1.5rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0;
+    }
+    .tab-btn {
+      padding: 0.5rem 1rem;
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: var(--text3);
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+      transition: all 0.15s;
+      border-radius: 0;
+    }
+    .tab-btn:hover { color: var(--text2); }
+    .tab-btn.active { color: var(--accent3); border-bottom-color: var(--accent2); }
+
+    .project-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius2);
+      padding: 1.25rem;
+      cursor: pointer;
+      transition: all 0.15s;
+      border-left: 4px solid;
+    }
+    .project-card:hover { border-color: var(--border2); transform: translateY(-1px); box-shadow: var(--shadow); }
+    .project-card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.75rem; }
+    .project-card-name { font-family: var(--font-head); font-size: 1rem; font-weight: 700; }
+    .project-card-desc { font-size: 0.82rem; color: var(--text2); margin-bottom: 0.75rem; line-height: 1.4; }
+    .project-card-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 0.75rem; }
+
+    .kanban-project-select {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .color-dot {
+      width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0;
+      border: 2px solid rgba(255,255,255,0.15);
+    }
+
+    .color-picker-row {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      margin-top: 0.4rem;
+    }
+    .color-swatch {
+      width: 24px; height: 24px;
+      border-radius: 50%;
+      cursor: pointer;
+      border: 2px solid transparent;
+      transition: all 0.15s;
+    }
+    .color-swatch.selected,
+    .color-swatch:hover { border-color: white; transform: scale(1.15); }
+  </style>
+</head>
+<body>
+<div class="app-shell">
+
+  <main class="main-content">
+
+    <div class="page-header">
+      <div>
+        <div class="page-title">🗂 Proyectos</div>
+        <div class="page-subtitle">Tablero de proyectos y tareas</div>
+      </div>
+      <button class="btn btn-primary" id="btn-new-project">+ Nuevo proyecto</button>
+    </div>
+
+    <!-- Tabs -->
+    <div class="project-tabs">
+      <button class="tab-btn active" data-tab="projects">Proyectos</button>
+      <button class="tab-btn" data-tab="kanban">Tablero Kanban</button>
+    </div>
+
+    <!-- Tab: Projects list -->
+    <div id="tab-projects">
+      <div class="grid-auto" id="projects-grid">
+        <div class="card"><div class="spinner"></div></div>
+      </div>
+    </div>
+
+    <!-- Tab: Kanban -->
+    <div id="tab-kanban" class="hidden">
+      <div class="kanban-project-select">
+        <label class="form-label" style="white-space:nowrap">Proyecto:</label>
+        <select id="kanban-project-sel" style="max-width:280px;"></select>
+        <button class="btn btn-secondary btn-sm" id="btn-new-task">+ Tarea</button>
+      </div>
+      <div class="kanban-board" id="kanban-board">
+        <div class="empty-state"><div class="spinner"></div></div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- Modal: Project -->
+<div class="modal-overlay" id="modal-project">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="project-modal-title">Nuevo proyecto</div>
+      <button class="modal-close" onclick="closeModal('modal-project')">✕</button>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Nombre</label>
+      <input type="text" id="proj-name" placeholder="Mi proyecto" />
+    </div>
+    <div class="form-group" style="margin-top:0.75rem;">
+      <label class="form-label">Descripción</label>
+      <textarea id="proj-desc" rows="2" placeholder="Descripción breve..." style="resize:vertical;"></textarea>
+    </div>
+    <div class="form-group" style="margin-top:0.75rem;">
+      <label class="form-label">Color</label>
+      <div class="color-picker-row" id="color-picker">
+        ${['#6366f1','#8b5cf6','#ec4899','#ef4444','#f97316','#f59e0b','#10b981','#06b6d4','#3b82f6','#64748b'].map(c =>
+          `<div class="color-swatch" style="background:${c}" data-color="${c}" onclick="selectColor('${c}')"></div>`
+        ).join('')}
+      </div>
+      <input type="hidden" id="proj-color" value="#6366f1" />
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-secondary" onclick="closeModal('modal-project')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-save-project">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Task -->
+<div class="modal-overlay" id="modal-task">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">Nueva tarea</div>
+      <button class="modal-close" onclick="closeModal('modal-task')">✕</button>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Título</label>
+      <input type="text" id="task-title" placeholder="Descripción de la tarea" />
+    </div>
+    <div class="form-row" style="margin-top:0.75rem;">
+      <div class="form-group">
+        <label class="form-label">Estado</label>
+        <select id="task-status">
+          <option value="pending">Pendiente</option>
+          <option value="in_progress">En progreso</option>
+          <option value="done">Terminado</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Prioridad</label>
+        <select id="task-priority">
+          <option value="low">Baja</option>
+          <option value="medium" selected>Media</option>
+          <option value="high">Alta</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-group" style="margin-top:0.75rem;">
+      <label class="form-label">Fecha límite</label>
+      <input type="date" id="task-due" />
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-secondary" onclick="closeModal('modal-task')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-save-task">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+<script src="/js/api.js"></script>
+<script src="/js/shell.js"></script>
+<script>
+let projects = [];
+let editingProjectId = null;
+
+// ── Init ────────────────────────────────────────────────────
+(async () => {
+  const user = await requireAuth();
+  if (!user) return;
+  injectShell('projects');
+  renderTopbar(user);
+  await loadProjects();
+})();
+
+async function loadProjects() {
+  projects = await api.projects().catch(() => []);
+  renderProjectsGrid();
+  populateKanbanSelect();
+  if (projects.length) loadKanban(projects[0].id);
+}
+
+// ── Tabs ────────────────────────────────────────────────────
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const tab = btn.dataset.tab;
+    document.getElementById('tab-projects').classList.toggle('hidden', tab !== 'projects');
+    document.getElementById('tab-kanban').classList.toggle('hidden', tab !== 'kanban');
+  });
+});
+
+// ── Projects Grid ───────────────────────────────────────────
+function renderProjectsGrid() {
+  const el = document.getElementById('projects-grid');
+  if (!projects.length) {
+    el.innerHTML = `<div class="empty-state" style="grid-column:1/-1;padding:3rem;">
+      <div class="icon">🗂</div><p>No hay proyectos aún</p>
+    </div>`;
+    return;
+  }
+  el.innerHTML = projects.map(p => {
+    const done  = p.tasks.filter(t => t.status === 'done').length;
+    const total = p.tasks.length;
+    const pct   = p.progress || 0;
+    return `
+      <div class="project-card" style="border-left-color:${p.color}" onclick="openKanban(${p.id})">
+        <div class="project-card-header">
+          <div>
+            <div class="project-card-name">${p.name}</div>
+          </div>
+          <div style="display:flex;gap:0.4rem;flex-shrink:0;" onclick="event.stopPropagation()">
+            <button class="btn btn-ghost btn-icon btn-sm" onclick="editProject(${p.id})" title="Editar">✏️</button>
+            <button class="btn btn-ghost btn-icon btn-sm" onclick="deleteProject(${p.id})" title="Eliminar">🗑</button>
+          </div>
+        </div>
+        ${p.description ? `<div class="project-card-desc">${p.description}</div>` : ''}
+        <div class="progress-bar" style="margin-bottom:0.5rem;">
+          <div class="progress-fill" style="width:${pct}%;"></div>
+        </div>
+        <div class="project-card-footer">
+          <span class="text-xs text-dim">${done}/${total} tareas completadas</span>
+          <span class="text-xs text-mono" style="color:var(--accent3)">${pct}%</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function openKanban(id) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelector('[data-tab="kanban"]').classList.add('active');
+  document.getElementById('tab-projects').classList.add('hidden');
+  document.getElementById('tab-kanban').classList.remove('hidden');
+  document.getElementById('kanban-project-sel').value = id;
+  loadKanban(id);
+}
+
+// ── Kanban ──────────────────────────────────────────────────
+function populateKanbanSelect() {
+  const sel = document.getElementById('kanban-project-sel');
+  sel.innerHTML = projects.map(p =>
+    `<option value="${p.id}">${p.name}</option>`
+  ).join('');
+}
+
+document.getElementById('kanban-project-sel').addEventListener('change', function() {
+  loadKanban(parseInt(this.value));
+});
+
+async function loadKanban(projectId) {
+  const board = document.getElementById('kanban-board');
+  board.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><div class="spinner"></div></div>`;
+
+  const project = await api.project(projectId).catch(() => null);
+  if (!project) {
+    board.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><p>Error cargando proyecto</p></div>`;
+    return;
+  }
+
+  const cols = [
+    { status: 'pending',     label: 'Pendiente',   color: 'var(--yellow)' },
+    { status: 'in_progress', label: 'En progreso', color: 'var(--blue)' },
+    { status: 'done',        label: 'Terminado',   color: 'var(--green)' },
+  ];
+
+  board.innerHTML = cols.map(col => {
+    const tasks = project.tasks.filter(t => t.status === col.status);
+    return `
+      <div class="kanban-col">
+        <div class="kanban-col-header">
+          <div class="kanban-col-title" style="color:${col.color}">${col.label}</div>
+          <div class="kanban-count">${tasks.length}</div>
+        </div>
+        <div class="kanban-col-body" id="col-${col.status}">
+          ${tasks.length ? tasks.map(t => renderKanbanCard(t, project.id)).join('') :
+            `<div class="empty-state" style="padding:1.5rem;"><p style="font-size:0.8rem;">Sin tareas</p></div>`
+          }
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderKanbanCard(task, projectId) {
+  return `
+    <div class="kanban-card" data-task-id="${task.id}">
+      <div class="kanban-card-title">${task.title}</div>
+      <div class="kanban-card-meta">
+        ${priorityBadge(task.priority)}
+        ${task.due_date ? `<span class="text-xs text-dim">📅 ${fmtShortDate(task.due_date)}</span>` : ''}
+      </div>
+      <div class="kanban-card-actions">
+        ${task.status !== 'pending' ? `<button class="btn btn-ghost btn-sm" onclick="moveTask(${task.id},'prev',${projectId})">← Atrás</button>` : ''}
+        ${task.status !== 'done'    ? `<button class="btn btn-ghost btn-sm" onclick="moveTask(${task.id},'next',${projectId})">Avanzar →</button>` : ''}
+        <button class="btn btn-ghost btn-sm btn-icon" style="margin-left:auto" onclick="deleteTask(${task.id},${projectId})">🗑</button>
+      </div>
+    </div>
+  `;
+}
+
+async function moveTask(taskId, direction, projectId) {
+  const order = ['pending', 'in_progress', 'done'];
+  const project = await api.project(projectId);
+  const task = project.tasks.find(t => t.id === taskId);
+  if (!task) return;
+  const idx = order.indexOf(task.status);
+  const newStatus = direction === 'next' ? order[idx + 1] : order[idx - 1];
+  if (!newStatus) return;
+  await api.updateTask(taskId, { status: newStatus });
+  loadKanban(projectId);
+}
+
+async function deleteTask(taskId, projectId) {
+  if (!confirm('¿Eliminar tarea?')) return;
+  await api.deleteTask(taskId);
+  toast('Tarea eliminada');
+  loadKanban(projectId);
+}
+
+// ── New Task ────────────────────────────────────────────────
+document.getElementById('btn-new-task').addEventListener('click', () => {
+  document.getElementById('modal-task').classList.add('open');
+});
+
+document.getElementById('btn-save-task').addEventListener('click', async () => {
+  const title    = document.getElementById('task-title').value.trim();
+  const status   = document.getElementById('task-status').value;
+  const priority = document.getElementById('task-priority').value;
+  const due      = document.getElementById('task-due').value;
+  const pid      = parseInt(document.getElementById('kanban-project-sel').value);
+
+  if (!title) { toast('El título es obligatorio', 'error'); return; }
+  if (!pid)   { toast('Selecciona un proyecto', 'error'); return; }
+
+  try {
+    await api.createTask(pid, {
+      title, status, priority,
+      due_date: due ? new Date(due).toISOString() : null,
+    });
+    closeModal('modal-task');
+    document.getElementById('task-title').value = '';
+    document.getElementById('task-due').value = '';
+    toast('Tarea creada ✓');
+    await loadProjects();
+    loadKanban(pid);
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+});
+
+// ── New / Edit Project ──────────────────────────────────────
+let selectedColor = '#6366f1';
+
+function selectColor(color) {
+  selectedColor = color;
+  document.getElementById('proj-color').value = color;
+  document.querySelectorAll('.color-swatch').forEach(s => {
+    s.classList.toggle('selected', s.dataset.color === color);
+  });
+}
+selectColor('#6366f1');
+
+document.getElementById('btn-new-project').addEventListener('click', () => {
+  editingProjectId = null;
+  document.getElementById('project-modal-title').textContent = 'Nuevo proyecto';
+  document.getElementById('proj-name').value = '';
+  document.getElementById('proj-desc').value = '';
+  selectColor('#6366f1');
+  document.getElementById('modal-project').classList.add('open');
+});
+
+function editProject(id) {
+  const p = projects.find(x => x.id === id);
+  if (!p) return;
+  editingProjectId = id;
+  document.getElementById('project-modal-title').textContent = 'Editar proyecto';
+  document.getElementById('proj-name').value = p.name;
+  document.getElementById('proj-desc').value = p.description || '';
+  selectColor(p.color || '#6366f1');
+  document.getElementById('modal-project').classList.add('open');
+}
+
+document.getElementById('btn-save-project').addEventListener('click', async () => {
+  const name  = document.getElementById('proj-name').value.trim();
+  const desc  = document.getElementById('proj-desc').value.trim();
+  const color = document.getElementById('proj-color').value;
+
+  if (!name) { toast('El nombre es obligatorio', 'error'); return; }
+
+  try {
+    if (editingProjectId) {
+      await api.updateProject(editingProjectId, { name, description: desc, color });
+      toast('Proyecto actualizado ✓');
+    } else {
+      await api.createProject({ name, description: desc, color });
+      toast('Proyecto creado ✓');
+    }
+    closeModal('modal-project');
+    await loadProjects();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+});
+
+async function deleteProject(id) {
+  if (!confirm('¿Eliminar este proyecto y todas sus tareas?')) return;
+  try {
+    await api.deleteProject(id);
+    toast('Proyecto eliminado');
+    await loadProjects();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+// ── Utilities ───────────────────────────────────────────────
+function closeModal(id) {
+  document.getElementById(id).classList.remove('open');
+}
+document.querySelectorAll('.modal-overlay').forEach(m => {
+  m.addEventListener('click', e => { if (e.target === m) m.classList.remove('open'); });
+});
+</script>
+</body>
+</html>
